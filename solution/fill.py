@@ -161,17 +161,49 @@ def get_pixel_color(dir, world_position, tile_position):
     return original_color
 
 
+def world_fill(path, fills):
+    fw, fh = (10, 10)
+    w, h = (160, 144)
+    work_queue = []
+    img_map = dict()
+    for fl, tl, to_color in fills:
+        from_color = get_pixel_color(path, fl, tl)
+        work_queue.append((fl, {tl}, from_color, to_color))
+    while work_queue:
+        work = work_queue.pop()
+        (fx, fy), tl, from_color, to_color = work
+        file = path / f'tile_{fx}_{fy}.png'
+        im = img_map.get((fx, fy), Image.open(file))
+        edges = tile_fill(im, tl, from_color, to_color)
+        if 'left' in edges and fx > 0:
+            new_positions = {(w - 1, y) for (x, y) in edges['left']}
+            work_queue.append(((fx - 1, fy), new_positions, from_color, to_color))
+        if 'top' in edges and fy > 0:
+            new_positions = {(x, h - 1) for (x, y) in edges['top']}
+            work_queue.append(((fx, fy - 1), new_positions, from_color, to_color))
+        if 'right' in edges and fx + 1 < fw:
+            new_positions = {(0, y) for (x, y) in edges['right']}
+            work_queue.append(((fx + 1, fy), new_positions, from_color, to_color))
+        if 'bottom' in edges and fy + 1 < fh:
+            new_positions = {(x, 0) for (x, y) in edges['bottom']}
+            work_queue.append(((fx, fy + 1), new_positions, from_color, to_color))
+        img_map[(fx, fy)] = im
+    for (fx, fy), im in img_map.items():
+        file = path / f'tile_{fx}_{fy}.png'
+        im.save(file)
+
+
 def concurrent_world_fill(path, fills, num_workers=None):
     if num_workers is None:
         num_workers = 10
     fw, fh = (10, 10)
     w, h = (160, 144)
     work = WorkItems()
+    for i in range(num_workers):
+        Worker(path, fh, fw, h, w, work).start()
     for fl, tl, to_color in fills:
         from_color = get_pixel_color(path, fl, tl)
         work.put(fl, ({tl}, from_color, to_color))
-    for i in range(num_workers):
-        Worker(path, fh, fw, h, w, work).start()
     work.join()
 
 
@@ -217,12 +249,17 @@ def main():
         fill(im, (150, 102), (0, 0, 255, 255))
         im.show()
 
+    fills = [((6, 9), (0, 0), (255, 0, 0, 255)),
+             ((0, 1), (0, 50), (32, 160, 137, 255)),
+             ((2, 2), (80, 62), (58, 212, 109, 255)),
+             ((6, 1), (140, 56), (58, 118, 221, 255))]
+
     crop(Path('part_2/dsa_challenge_2.png'))
-    concurrent_world_fill(Path('part_2'),
-                          [((6, 9), (0, 0), (255, 0, 0, 255)),
-                           ((0, 1), (0, 50), (32, 160, 137, 255)),
-                           ((2, 2), (80, 62), (58, 212, 109, 255)),
-                           ((6, 1), (140, 56), (58, 118, 221, 255))])
+    world_fill(Path('part_2'), fills)
+    combine(Path('part_2'))
+
+    crop(Path('part_2/dsa_challenge_2.png'))
+    concurrent_world_fill(Path('part_2'), fills)
     combine(Path('part_2'))
 
 
