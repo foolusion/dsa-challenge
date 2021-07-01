@@ -2,12 +2,8 @@ from threading import Thread, Lock, Condition
 from PIL import Image
 from pathlib import Path
 
-TilePosition = tuple[int, int]
-TileDimension = tuple[int, int]
-Color = tuple[int, int, int, int]
 
-
-def fill(image: Image, position: TilePosition, color: Color):
+def fill(image, position, color):
     pixels = image.load()
     visited = set()
     x, y = position
@@ -40,8 +36,8 @@ class WorkItems:
         self.all_tasks_done = Condition(self.mu)
         self.not_empty = Condition(self.mu)
         self.unfinished_tasks = 0
-    
-    def put(self, path: TilePosition, work: tuple[set[TilePosition], Color, Color] = None):
+
+    def put(self, path, work=None):
         if work is None:
             work = (set(), (0, 0, 0, 255), (0, 0, 0, 255))
         with self.mu:
@@ -54,8 +50,8 @@ class WorkItems:
                 w[(work[1], work[2])] = s | work[0]
                 self.data[path] = w
             self.not_empty.notify()
-    
-    def get(self) -> tuple[TilePosition, dict[tuple[Color, Color], set[TilePosition]]]:
+
+    def get(self):
         with self.not_empty:
             while len(self.data) == 0:
                 self.not_empty.wait()
@@ -66,8 +62,8 @@ class WorkItems:
             w = self.data.pop(k)
             self.processing.add(k)
             return k, w
-    
-    def task_done(self, f: TilePosition):
+
+    def task_done(self, f):
         with self.all_tasks_done:
             self.processing.remove(f)
             unfinished = self.unfinished_tasks - 1
@@ -76,25 +72,24 @@ class WorkItems:
                     raise ValueError('task_done() called too many times')
                 self.all_tasks_done.notify_all()
             self.unfinished_tasks = unfinished
-    
+
     def join(self):
         with self.all_tasks_done:
             while self.unfinished_tasks:
                 self.all_tasks_done.wait()
 
 
-def update_edges(edges: dict[str, set[TilePosition]], edge: str, pos: TilePosition):
+def update_edges(edges, edge, pos):
     e = edges.get(edge, set())
     e.add(pos)
     edges[edge] = e
 
 
-def tile_fill(im: Image, tile_positions: set[TilePosition], from_color: Color,
-              to_color: Color) -> dict[str, set[TilePosition]]:
+def tile_fill(im, tile_positions, from_color, to_color):
     edges = dict()
     pixels = im.load()
     w, h = im.size
-    
+
     visited = set()
     frontier = tile_positions
     while frontier:
@@ -125,7 +120,7 @@ def tile_fill(im: Image, tile_positions: set[TilePosition], from_color: Color,
 
 
 class Worker(Thread):
-    def __init__(self, dir: Path, fh, fw, h, w, work: WorkItems):
+    def __init__(self, dir, fh, fw, h, w, work):
         Thread.__init__(self, daemon=True)
         self.dir = dir
         self.fh = fh
@@ -133,7 +128,7 @@ class Worker(Thread):
         self.h = h
         self.w = w
         self.work = work
-    
+
     def run(self):
         while True:
             f, work = self.work.get()
@@ -158,8 +153,7 @@ class Worker(Thread):
             self.work.task_done(f)
 
 
-def get_pixel_color(dir: Path, world_position: TilePosition,
-                    tile_position: TilePosition):
+def get_pixel_color(dir, world_position, tile_position):
     fx, fy = world_position
     file = dir / f'tile_{fx}_{fy}.png'
     with Image.open(file) as im:
@@ -167,7 +161,7 @@ def get_pixel_color(dir: Path, world_position: TilePosition,
     return original_color
 
 
-def concurrent_world_fill(path: Path, fills: list[tuple[TilePosition, TilePosition, Color]], num_workers=None):
+def concurrent_world_fill(path, fills, num_workers=None):
     if num_workers is None:
         num_workers = 10
     fw, fh = (10, 10)
@@ -181,7 +175,7 @@ def concurrent_world_fill(path: Path, fills: list[tuple[TilePosition, TilePositi
     work.join()
 
 
-def crop(f: Path):
+def crop(f):
     with Image.open(f) as im:
         w, h = im.size
         tw = w // 10
@@ -196,7 +190,7 @@ def crop(f: Path):
                 out.save(p / f'tile_{x}_{y}.png')
 
 
-def combine(p: Path):
+def combine(p):
     with Image.new('RGBA', (1600, 1440)) as out:
         for x in range(0, 10):
             for y in range(0, 10):
@@ -222,7 +216,7 @@ def main():
         fill(im, (120, 90), (0, 0, 191, 255))
         fill(im, (150, 102), (0, 0, 255, 255))
         im.show()
-    
+
     crop(Path('part_2/dsa_challenge_2.png'))
     concurrent_world_fill(Path('part_2'),
                           [((6, 9), (0, 0), (255, 0, 0, 255)),
