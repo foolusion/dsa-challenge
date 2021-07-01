@@ -1,5 +1,5 @@
 from queue import Queue
-from threading import Thread, Lock
+from threading import Thread, Lock, Condition
 from PIL import Image
 from pathlib import Path
 
@@ -31,74 +31,102 @@ def fill(image: Image, position: TilePosition, color: Color):
                 frontier.add(neighbor)
 
 
+class WorkItems:
+    def __init__(self, data=None):
+        if data is None:
+            data = dict()
+        self.data = data
+        self.processing = set()
+        self.mu = Lock()
+        self.all_tasks_done = Condition(self.mu)
+        self.not_empty = Condition(self.mu)
+        self.unfinished_tasks = 0
+    
+    def put(self, path: TilePosition, work: tuple[set[TilePosition], Color, Color] = None):
+        if work is None:
+            work = (set(), (0, 0, 0, 255), (0, 0, 0, 255))
+        with self.mu:
+            if path not in self.data:
+                self.unfinished_tasks += 1
+                self.data[path] = {(work[1], work[2]): work[0]}
+            else:
+                w = self.data[path]
+                s = w.get((work[1], work[2]), set())
+                w[(work[1], work[2])] = s | work[0]
+                self.data[path] = w
+            self.not_empty.notify()
+    
+    def get(self) -> tuple[TilePosition, dict[tuple[Color, Color], set[TilePosition]]]:
+        with self.not_empty:
+            while len(self.data) == 0:
+                self.not_empty.wait()
+            while not self.data.keys() - self.processing:
+                self.not_empty.wait()
+            keys = self.data.keys() - self.processing
+            k = keys.pop()
+            w = self.data.pop(k)
+            self.processing.add(k)
+            return k, w
+    
+    def task_done(self, f: TilePosition):
+        with self.all_tasks_done:
+            self.processing.remove(f)
+            unfinished = self.unfinished_tasks - 1
+            if unfinished <= 0:
+                if unfinished < 0:
+                    raise ValueError('task_done() called too many times')
+                self.all_tasks_done.notify_all()
+            self.unfinished_tasks = unfinished
+    
+    def join(self):
+        with self.all_tasks_done:
+            while self.unfinished_tasks:
+                self.all_tasks_done.wait()
+
+
 def update_edges(edges: dict[str, set[TilePosition]], edge: str, pos: TilePosition):
     e = edges.get(edge, set())
     e.add(pos)
     edges[edge] = e
 
 
-def tile_fill(file: Path, tile_positions: set[TilePosition], from_color: Color,
-              to_color: Color) -> dict[Path, set[TilePosition]]:
+def tile_fill(im: Image, tile_positions: set[TilePosition], from_color: Color,
+              to_color: Color) -> dict[str, set[TilePosition]]:
     edges = dict()
-    with Image.open(file) as im:
-        pixels = im.load()
-        w, h = im.size
-        
-        visited = set()
-        frontier = tile_positions
-        while frontier:
-            px, py = frontier.pop()
-            visited.add((px, py))
-            c = pixels[px, py]
-            if c != from_color:
-                continue
-            pixels[px, py] = to_color
-            # check if it is an edge
-            if px == 0:
-                update_edges(edges, 'left', (px, py))
-            elif py == 0:
-                update_edges(edges, 'top', (px, py))
-            elif px == w - 1:
-                update_edges(edges, 'right', (px, py))
-            elif py == h - 1:
-                update_edges(edges, 'bottom', (px, py))
-            neighbors = [(x, y) for x in range(px - 1, px + 2)
-                         for y in range(py - 1, py + 2)
-                         if 0 <= x < w
-                         and 0 <= y < h
-                         and not (x == px and y == py)]
-            for neighbor in neighbors:
-                if neighbor not in visited:
-                    frontier.add(neighbor)
-        im.save(file)
+    pixels = im.load()
+    w, h = im.size
+    
+    visited = set()
+    frontier = tile_positions
+    while frontier:
+        px, py = frontier.pop()
+        visited.add((px, py))
+        c = pixels[px, py]
+        if c != from_color:
+            continue
+        pixels[px, py] = to_color
+        # check if it is an edge
+        if px == 0:
+            update_edges(edges, 'left', (px, py))
+        elif py == 0:
+            update_edges(edges, 'top', (px, py))
+        elif px == w - 1:
+            update_edges(edges, 'right', (px, py))
+        elif py == h - 1:
+            update_edges(edges, 'bottom', (px, py))
+        neighbors = [(x, y) for x in range(px - 1, px + 2)
+                     for y in range(py - 1, py + 2)
+                     if 0 <= x < w
+                     and 0 <= y < h
+                     and not (x == px and y == py)]
+        for neighbor in neighbors:
+            if neighbor not in visited:
+                frontier.add(neighbor)
     return edges
 
 
-# fills color across multiple tiles. Each tile is stored in a file
-# 'tile_{x}_{y}.png'. The fill starts from the local x, y position in that
-# tile.
-def world_fill(dir: Path, world_position: TilePosition, world_dimension: TileDimension,
-               tile_position: TilePosition, tile_dimension: TileDimension,
-               color: Color):
-    fx, fy = world_position
-    fw, fh = world_dimension
-    w, h = tile_dimension
-    file = dir / f'tile_{fx}_{fy}.png'
-    with Image.open(file) as im:
-        original_color = im.getpixel(tile_position)
-    work = Queue()
-    in_process = set()
-    mutex = Lock()
-    work.put(((fx, fy), {tile_position}, original_color, color))
-    Worker(dir, fh, fw, h, w, work, in_process, mutex).start()
-    Worker(dir, fh, fw, h, w, work, in_process, mutex).start()
-    Worker(dir, fh, fw, h, w, work, in_process, mutex).start()
-    Worker(dir, fh, fw, h, w, work, in_process, mutex).start()
-    work.join()
-
-
 class Worker(Thread):
-    def __init__(self, dir: Path, fh, fw, h, w, work, in_process, mutex):
+    def __init__(self, dir: Path, fh, fw, h, w, work: WorkItems):
         Thread.__init__(self, daemon=True)
         self.dir = dir
         self.fh = fh
@@ -106,36 +134,52 @@ class Worker(Thread):
         self.h = h
         self.w = w
         self.work = work
-        self.in_process = in_process
-        self.mutex = mutex
     
     def run(self):
         while True:
-            (fx, fy), tp, from_color, to_color = self.work.get()
-            f = self.dir / f'tile_{fx}_{fy}.png'
-            with self.mutex:
-                if f in self.in_process:
-                    self.work.put(((fx, fy), tp, from_color, to_color))
-                    self.work.task_done()
-                    continue
-                else:
-                    self.in_process.add(f)
-            edges = tile_fill(f, tp, from_color, to_color)
-            with self.mutex:
-                self.in_process.remove(f)
-            if 'left' in edges and fx > 0:
-                new_positions = {(self.w - 1, y) for (x, y) in edges['left']}
-                self.work.put(((fx - 1, fy), new_positions, from_color, to_color))
-            if 'top' in edges and fy > 0:
-                new_positions = {(x, self.h - 1) for (x, y) in edges['top']}
-                self.work.put(((fx, fy - 1), new_positions, from_color, to_color))
-            if 'right' in edges and fx + 1 < self.fw:
-                new_positions = {(0, y) for (x, y) in edges['right']}
-                self.work.put(((fx + 1, fy), new_positions, from_color, to_color))
-            if 'bottom' in edges and fy + 1 < self.fh:
-                new_positions = {(x, 0) for (x, y) in edges['bottom']}
-                self.work.put(((fx, fy + 1), new_positions, from_color, to_color))
-            self.work.task_done()
+            f, work = self.work.get()
+            fx, fy = f
+            file = self.dir / f'tile_{fx}_{fy}.png'
+            with Image.open(file) as im:
+                for (from_color, to_color), tp in work.items():
+                    edges = tile_fill(im, tp, from_color, to_color)
+                    if 'left' in edges and fx > 0:
+                        new_positions = {(self.w - 1, y) for (x, y) in edges['left']}
+                        self.work.put((fx - 1, fy), (new_positions, from_color, to_color))
+                    if 'top' in edges and fy > 0:
+                        new_positions = {(x, self.h - 1) for (x, y) in edges['top']}
+                        self.work.put((fx, fy - 1), (new_positions, from_color, to_color))
+                    if 'right' in edges and fx + 1 < self.fw:
+                        new_positions = {(0, y) for (x, y) in edges['right']}
+                        self.work.put((fx + 1, fy), (new_positions, from_color, to_color))
+                    if 'bottom' in edges and fy + 1 < self.fh:
+                        new_positions = {(x, 0) for (x, y) in edges['bottom']}
+                        self.work.put((fx, fy + 1), (new_positions, from_color, to_color))
+                im.save(file)
+            self.work.task_done(f)
+
+
+def get_pixel_color(dir: Path, world_position: TilePosition,
+                    tile_position: TilePosition):
+    fx, fy = world_position
+    file = dir / f'tile_{fx}_{fy}.png'
+    with Image.open(file) as im:
+        original_color = im.getpixel(tile_position)
+    return original_color
+
+
+def concurrent_world_fill(path: Path, fills: list[tuple[TilePosition, TilePosition, Color]], num_workers=None):
+    if num_workers is None:
+        num_workers = 10
+    fw, fh = (10, 10)
+    w, h = (160, 144)
+    work = WorkItems()
+    for fl, tl, to_color in fills:
+        from_color = get_pixel_color(path, fl, tl)
+        work.put(fl, ({tl}, from_color, to_color))
+    for i in range(num_workers):
+        Worker(path, fh, fw, h, w, work).start()
+    work.join()
 
 
 def crop(f: Path):
@@ -181,10 +225,11 @@ def main():
         im.show()
     
     crop(Path('../part_2/dsa_challenge_2.png'))
-    world_fill(Path('../part_2'), (6, 9), (10, 10), (0, 0), (160, 144), (255, 0, 0, 255))
-    world_fill(Path('../part_2'), (0, 1), (10, 10), (0, 50), (160, 140), (32, 160, 137, 255))
-    world_fill(Path('../part_2'), (2, 2), (10, 10), (80, 62), (160, 144), (58, 212, 109, 255))
-    world_fill(Path('../part_2'), (6, 1), (10, 10), (140, 56), (160, 144), (58, 118, 221, 255))
+    concurrent_world_fill(Path('../part_2'),
+                          [((6, 9), (0, 0), (255, 0, 0, 255)),
+                           ((0, 1), (0, 50), (32, 160, 137, 255)),
+                           ((2, 2), (80, 62), (58, 212, 109, 255)),
+                           ((6, 1), (140, 56), (58, 118, 221, 255))])
     combine(Path('../part_2'))
 
 
