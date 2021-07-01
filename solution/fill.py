@@ -1,4 +1,4 @@
-from threading import Thread, Lock, Condition, Event
+from threading import Thread, Lock, Condition
 from PIL import Image
 from pathlib import Path
 
