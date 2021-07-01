@@ -1,5 +1,4 @@
-from queue import Queue
-from threading import Thread, Lock, Condition
+from threading import Thread, Lock, Condition, Event
 from PIL import Image
 from pathlib import Path
 
@@ -209,7 +208,7 @@ def combine(p: Path):
 
 
 def main():
-    with Image.open('../part_1/dsa_challenge.png') as im:
+    with Image.open('part_1/dsa_challenge.png') as im:
         fill(im, (35, 30), (63, 0, 0, 255))
         fill(im, (95, 30), (127, 0, 0, 255))
         fill(im, (125, 30), (191, 0, 0, 255))
@@ -224,13 +223,13 @@ def main():
         fill(im, (150, 102), (0, 0, 255, 255))
         im.show()
     
-    crop(Path('../part_2/dsa_challenge_2.png'))
-    concurrent_world_fill(Path('../part_2'),
+    crop(Path('part_2/dsa_challenge_2.png'))
+    concurrent_world_fill(Path('part_2'),
                           [((6, 9), (0, 0), (255, 0, 0, 255)),
                            ((0, 1), (0, 50), (32, 160, 137, 255)),
                            ((2, 2), (80, 62), (58, 212, 109, 255)),
                            ((6, 1), (140, 56), (58, 118, 221, 255))])
-    combine(Path('../part_2'))
+    combine(Path('part_2'))
 
 
 if __name__ == '__main__':
