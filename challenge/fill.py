@@ -7,7 +7,7 @@ from PIL import Image
 from challenge.util import crop, combine
 
 Position = namedtuple('Position', 'x, y')
-Color = namedtuple('Color', 'r, g, b, a', defaults=[255])
+Color = namedtuple('Color', 'r, g, b, a')
 
 
 def fill(image, position, color):
@@ -272,27 +272,27 @@ def concurrent_world_fill(path, fills, num_workers=None):
 def main():
     with Image.open('part_1/dsa_challenge.png') as im:
         fills = [
-            (Position(35, 30), Color(63, 0, 0)),
-            (Position(95, 30), Color(127, 0, 0)),
-            (Position(125, 30), Color(191, 0, 0)),
-            (Position(20, 65), Color(255, 0, 0)),
-            (Position(43, 82), Color(0, 63, 0)),
-            (Position(60, 90), Color(0, 127, 0)),
-            (Position(65, 80), Color(0, 191, 0)),
-            (Position(77, 80), Color(0, 255, 0)),
-            (Position(101, 102), Color(0, 0, 63)),
-            (Position(110, 90), Color(0, 0, 127)),
-            (Position(120, 90), Color(0, 0, 191)),
-            (Position(150, 102), Color(0, 0, 255)),
+            (Position(35, 30), Color(63, 0, 0, 255)),
+            (Position(95, 30), Color(127, 0, 0, 255)),
+            (Position(125, 30), Color(191, 0, 0, 255)),
+            (Position(20, 65), Color(255, 0, 0, 255)),
+            (Position(43, 82), Color(0, 63, 0, 255)),
+            (Position(60, 90), Color(0, 127, 0, 255)),
+            (Position(65, 80), Color(0, 191, 0, 255)),
+            (Position(77, 80), Color(0, 255, 0, 255)),
+            (Position(101, 102), Color(0, 0, 63, 255)),
+            (Position(110, 90), Color(0, 0, 127, 255)),
+            (Position(120, 90), Color(0, 0, 191, 255)),
+            (Position(150, 102), Color(0, 0, 255, 255)),
         ]
         for p, c in fills:
             fill(im, p, c)
         im.show()
 
-    fills = [(Position(6, 9), Position(0, 0), Color(255, 0, 0)),
-             (Position(0, 1), Position(0, 50), Color(32, 160, 137)),
-             (Position(2, 2), Position(80, 62), Color(58, 212, 109)),
-             (Position(6, 1), Position(140, 56), Color(58, 118, 221))]
+    fills = [(Position(6, 9), Position(0, 0), Color(255, 0, 0, 255)),
+             (Position(0, 1), Position(0, 50), Color(32, 160, 137, 255)),
+             (Position(2, 2), Position(80, 62), Color(58, 212, 109, 255)),
+             (Position(6, 1), Position(140, 56), Color(58, 118, 221, 255))]
 
     crop(Path('part_2/dsa_challenge_2.png'))
     world_fill(Path('part_2'), fills)
