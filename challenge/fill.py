@@ -27,6 +27,8 @@ def fill(image, position, color):
     frontier = {position}
     px, py = position
     start_color = pixels[px, py]
+    if color == start_color:
+        return
     while frontier:
         p = frontier.pop()
         px, py = p
@@ -129,6 +131,8 @@ def world_fill(path, file_pos, tile_pos, color):
     work_queue = []
     img_map = dict()
     from_color = get_pixel_color(Path(path), file_pos, tile_pos)
+    if from_color == color:
+        return
     work_queue.append((file_pos, {tile_pos}, from_color, color))
     while work_queue:
         work = work_queue.pop()
@@ -172,6 +176,7 @@ def main():
         ]
         for p, c in fills:
             fill(im, p, c)
+        im.show()
 
     fills = [((6, 9), (0, 0), (255, 0, 0, 255)),
              ((0, 1), (0, 50), (32, 160, 137, 255)),
